@@ -1,5 +1,11 @@
 import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
+import VueAxios from 'vue-axios';
+import axios from 'axios';
+import { router } from './router';
 
-createApp(App).mount('#app')
+const app = createApp(App);
+app.use(router)
+app.use(VueAxios, axios);
+app.mount('#app');

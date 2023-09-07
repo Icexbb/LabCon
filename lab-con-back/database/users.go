@@ -4,30 +4,22 @@ import (
 	"database/sql"
 	"errors"
 	"time"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type User struct {
-	uid      int
-	username string
-	phone    int
-	email    string
-	level    int
-	schoolId int
-	created  int64
-	password string
+	Uid, Phone, Level, SchoolId        int
+	Username, Email, Created, Password string
 }
 
 func NewUser(username, password, email string, schoolId, level, phone int) User {
 	u := User{
-		username: username,
-		level:    level,
-		email:    email,
-		phone:    phone,
-		schoolId: schoolId,
-		password: password,
-		created:  time.Now().Unix(),
+		Username: username,
+		Level:    level,
+		Email:    email,
+		Phone:    phone,
+		SchoolId: schoolId,
+		Password: password,
+		Created:  time.Now().Format(time.RFC3339),
 	}
 	return u
 }
@@ -37,14 +29,14 @@ func (d DB) InitialUser() {
 	var err error
 	_, err = db.Exec(
 		`CREATE TABLE IF NOT EXISTS user(
-		uid INTEGER PRIMARY KEY AUTOINCREMENT,
+		uid INTEGER PRIMARY KEY AUTO_INCREMENT,
 		username VARCHAR(128) NOT NULL ,
 		level INTEGER DEFAULT 0,
 		phone INTEGER NULL ,
 		email VARCHAR(128) NULL,
-		schoolId INTEGER NOT NULL ,
+		schoolId BIGINT NOT NULL ,
 		password VARCHAR(128) NOT NULL ,
-        created DATE NULL);`)
+        created TIMESTAMP NULL);`)
 	if err != nil {
 		panic(err)
 	}
@@ -58,12 +50,12 @@ func (d DB) InsertUser(u User) (int64, error) {
 	defer func(db *sql.DB) {
 		_ = db.Close()
 	}(db)
-	if db.QueryRow(`select * from user where username=? or schoolId=?`, u.username, u.schoolId).Scan() != nil {
+	if !errors.Is(db.QueryRow(`SELECT * FROM user WHERE username=? or schoolId=?`, u.Username, u.SchoolId).Scan(), sql.ErrNoRows) {
 		return 0, errors.New("user Already Exist")
 	}
 	var err error
 	exec, err := db.Exec(`INSERT INTO user(username,level,password,schoolId,created,email,phone) VALUES (?,?,?,?,?,?,?)`,
-		u.username, u.level, u.password, u.schoolId, u.created, u.email, u.phone)
+		u.Username, u.Level, u.Password, u.SchoolId, u.Created, u.Email, u.Phone)
 	if err != nil {
 		panic(err)
 	}
@@ -75,42 +67,42 @@ func (d DB) InsertUser(u User) (int64, error) {
 }
 func (d DB) checkPassword(schoolId int, password string) bool {
 	var db = d.GetHandler()
-	defer func(db *sql.DB) {
-		_ = db.Close()
-	}(db)
 	rows, _ := db.Query("select * from user where schoolId=? and password=?", schoolId, password)
-	return rows.Next()
+	result := rows.Next()
+	_ = db.Close()
+	return result
 }
 func (d DB) Login(u User, password string) (bool, error) {
 	var db = d.GetHandler()
-	if u.email != "" {
-		var schoolId int
-		row := db.QueryRow("SELECT schoolId from user where email=?", u.email)
-		if row.Scan(&schoolId) != nil {
-			return false, errors.New("no such user with that email")
-		} else {
-			return d.checkPassword(schoolId, password), nil
-		}
-	}
-	if u.phone != 0 {
-		var schoolId int
-		row := db.QueryRow("SELECT schoolId from user where phone=?", u.phone)
-		if row.Scan(&schoolId) != nil {
-			return false, errors.New("no such user with that phone")
-		} else {
-			return d.checkPassword(schoolId, password), nil
-		}
-	}
-	if u.schoolId != 0 {
-		var schoolId int
-		row := db.QueryRow("SELECT schoolId from user where schoolId=?", u.schoolId)
+
+	var schoolId int
+	if u.SchoolId != 0 {
+		row := db.QueryRow("SELECT schoolId from user where schoolId=?", u.SchoolId)
 		if row.Scan(&schoolId) != nil {
 			return false, errors.New("no such user with that schoolId")
-		} else {
-			return d.checkPassword(schoolId, password), nil
+		}
+	} else if u.Email != "" {
+		row := db.QueryRow("SELECT schoolId from user where email=?", u.Email)
+		if row.Scan(&schoolId) != nil {
+			return false, errors.New("no such user with that email")
+		}
+	} else if u.Phone != 0 {
+		row := db.QueryRow("SELECT schoolId from user where phone=?", u.Phone)
+		if row.Scan(&schoolId) != nil {
+			return false, errors.New("no such user with that phone")
 		}
 	}
-	return false, errors.New("user info is empty")
+	_ = db.Close()
+	if schoolId != 0 {
+		return d.checkPassword(schoolId, password), nil
+	} else {
+		return false, errors.New("user info is empty")
+	}
+}
+func (d DB) FindUserById(id int) User {
+	result := User{}
+	return result
+
 }
 func (d DB) UpdateEmail(schoolId int, email string) error {
 	var db = d.GetHandler()
@@ -125,7 +117,7 @@ func (d DB) UpdateEmail(schoolId int, email string) error {
 	_, err := db.Exec("update user set email=? where uid=?", email, uid)
 	return err
 }
-func (d DB) UpdatePhone(schoolId, phone int) error {
+func (d DB) UpdatePhone(schoolId int, phone int) error {
 	var db = d.GetHandler()
 	defer func(db *sql.DB) {
 		_ = db.Close()
